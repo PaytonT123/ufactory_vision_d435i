@@ -84,6 +84,15 @@ class TorchGGCNN(object):
         self.open_loop_height = ggcnn_config['OPEN_LOOP_HEIGHT'] / 1000.0
         self.depth_cam_k = ggcnn_config['DEPTH_CAM_K']
         self.grasp_img = None
+        # Numerical outputs of the most recent valid candidate (None if no candidate).
+        self.last_quality_map = None
+        self.last_pixel = None
+        self.last_score = None
+        # Edit F: angle/width maps and crop geometry of the most recent valid candidate.
+        self.last_angle_map = None
+        self.last_width_map = None
+        self.last_crop_origin = None   # (row, col) of the crop's top-left corner in the full image
+        self.last_crop_scale = None    # full-image pixels per output-map pixel
         if ggcnn_config['GGCNN_IN_THREAD']:
             self.thread = threading.Thread(target=self.run, daemon=True)
             self.thread.start()
@@ -97,8 +106,20 @@ class TorchGGCNN(object):
                 if not self.ggcnn_cmd_que.empty():
                     self.ggcnn_cmd_que.get()
                 self.ggcnn_cmd_que.put([robot_pos, result])
+
+    def _clear_last_outputs(self):
+        self.last_quality_map = None
+        self.last_pixel = None
+        self.last_score = None
+        self.last_angle_map = None
+        self.last_width_map = None
+        self.last_crop_origin = None
+        self.last_crop_scale = None
     
     def get_grasp_img(self, depth_image, depth_cam_k, robot_z):
+        # Clear stale numerical outputs so a rejected frame cannot reuse old values.
+        self._clear_last_outputs()
+
         crop_size = min(min(depth_image.shape[0], depth_image.shape[1]), 500)
         crop_y_offset = 0
         out_size = crop_size
@@ -113,6 +134,15 @@ class TorchGGCNN(object):
         crop_x_inx = max(0, imw - crop_size)  # crop width(x) start index
 
         depth_crop, depth_nan_mask = process_depth_image(depth_image, crop_size, out_size, True, crop_y_inx=crop_y_inx, crop_x_inx=crop_x_inx, crop_y_offset=crop_y_offset)
+
+        # Edit B: one exclusion mask = dilated NaN mask + any non-finite or non-positive raw depth.
+        y0 = crop_y_inx // 2 - crop_y_offset
+        x0 = crop_x_inx // 2
+        raw_crop = depth_image[y0:y0 + crop_size, x0:x0 + crop_size]
+        invalid = ~np.isfinite(raw_crop) | (raw_crop <= 0)
+        invalid = cv2.resize(invalid.astype(np.uint8), (out_size, out_size),
+                             interpolation=cv2.INTER_NEAREST).astype(bool)
+        exclude_mask = depth_nan_mask.astype(bool) | invalid
 
         with TimeIt('Calculate Depth'):
             # Figure out roughly the depth in mm of the part between the grippers for collision avoidance.
@@ -132,7 +162,8 @@ class TorchGGCNN(object):
                 pred_out = self.model(depthT)
 
             points_out = pred_out[0].cpu().numpy().squeeze() # shape is now (300,300)
-            points_out[depth_nan_mask] = 0
+            # Edit A: Boolean mask (was a uint8 array used as an integer index).
+            points_out[depth_nan_mask.astype(bool)] = 0
         
         with TimeIt('Trig'):
             # Calculate the angle map.
@@ -148,12 +179,18 @@ class TorchGGCNN(object):
             ang_out = ndimage.gaussian_filter(ang_out, 2.0)
             width_out = ndimage.gaussian_filter(width_out, 2.0)
             points_out = np.clip(points_out, 0.0, 1.0-1e-3)
+            # Edit C: filtering spreads scores into excluded pixels, so re-apply the exclusion.
+            points_out[exclude_mask] = 0
 
             # depth_crop = depth_crop.squeeze()
         
         with TimeIt('Control'):
             # Calculate the best pose from the camera intrinsics.
             maxes = None
+
+            # Edit D1: no eligible pixels means no candidate.
+            if not np.any(points_out > 0):
+                return points_out, None
 
             ALWAYS_MAX = False  # Use ALWAYS_MAX = True for the open-loop solution.
 
@@ -177,6 +214,18 @@ class TorchGGCNN(object):
                     # use np.int64 replace np.int
                     self.prev_mp = (max_pixel * 0.25 + self.prev_mp * 0.75).astype(np.int64)
 
+            # Edit E: keep the floating-point quality map and the selected score.
+            self.last_quality_map = points_out.copy()
+            self.last_pixel = (int(max_pixel[0]), int(max_pixel[1]))
+            self.last_score = float(points_out[max_pixel[0], max_pixel[1]])
+            # Edit F: also keep the (filtered) angle and width maps and the crop geometry,
+            # so a caller can evaluate pixels other than the one selected here.
+            # This does not change which pixel is selected or what is returned.
+            self.last_angle_map = ang_out.copy()
+            self.last_width_map = width_out.copy()
+            self.last_crop_origin = (int(y0), int(x0))
+            self.last_crop_scale = float(crop_size) / float(out_size)
+
             ang = ang_out[max_pixel[0], max_pixel[1]]
             width = width_out[max_pixel[0], max_pixel[1]]
             # Convert max_pixel back to uncropped/resized image coordinates in order to do the camera transform.
@@ -191,7 +240,9 @@ class TorchGGCNN(object):
             y = (max_pixel[0] - cy) / (fy) * point_depth
             z = point_depth
             # print("converted xyz in cam coordinate: [%lf, %lf, %lf]"%(x,y,z))
-            if np.isnan(z):
+            # Edit D2: require finite, positive depth at the selected point.
+            if not np.isfinite(z) or z <= 0:
+                self._clear_last_outputs()
                 return points_out, None
 
         with TimeIt('Draw'):

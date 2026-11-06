@@ -1,0 +1,17 @@
+{
+  "scene": "iphone_box_posA",
+  "object": "iphone_box",
+  "position": "posA",
+  "assumed_robot_z_m": 0.4,
+  "depth_dtype": "float32",
+  "depth_unit_to_mm_assumed": 1000.0,
+  "depth_min_valid": 0.45100000500679016,
+  "depth_max_valid": 0.5640000104904175,
+  "invalid_pixel_fraction_aligned": 0.025654296875,
+  "crop_y0_x0_size": [
+    0,
+    80,
+    480
+  ],
+  "grasp_result_repr": "[0.014377153386362319, -0.03889232637962235, 0.458, 0.14693038, 94.62809, 538.9999747276306]"
+}

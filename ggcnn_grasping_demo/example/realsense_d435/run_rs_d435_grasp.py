@@ -8,7 +8,7 @@ from queue import Queue
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 from camera.rs_camera import RealSenseCamera
 from camera.utils import get_combined_img
-from grasp.ggcnn_torch import TorchGGCNN
+from ufactory_vision.ggcnn_grasping_demo.grasp.ggcnn_torch_orig_2 import TorchGGCNN
 from grasp.robot_grasp import RobotGrasp
 
 WIN_NAME = 'RealSense-D435'

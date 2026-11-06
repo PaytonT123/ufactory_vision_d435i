@@ -1,0 +1,17 @@
+{
+  "scene": "foam_block_posC",
+  "object": "foam_block",
+  "position": "posC",
+  "assumed_robot_z_m": 0.4,
+  "depth_dtype": "float32",
+  "depth_unit_to_mm_assumed": 1000.0,
+  "depth_min_valid": 0.492000013589859,
+  "depth_max_valid": 0.5649999976158142,
+  "invalid_pixel_fraction_aligned": 0.016774088541666666,
+  "crop_y0_x0_size": [
+    0,
+    80,
+    480
+  ],
+  "grasp_result_repr": "[-0.08337529932876558, 0.08294760675429041, 0.497, 0.7050027, 82.62165, 537.9999876022339]"
+}

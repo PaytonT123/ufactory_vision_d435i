@@ -1,0 +1,17 @@
+{
+  "scene": "wifi_box_posC",
+  "object": "wifi_box",
+  "position": "posC",
+  "assumed_robot_z_m": 0.4,
+  "depth_dtype": "float32",
+  "depth_unit_to_mm_assumed": 1000.0,
+  "depth_min_valid": 0.41499999165534973,
+  "depth_max_valid": 0.5640000104904175,
+  "invalid_pixel_fraction_aligned": 0.028186848958333333,
+  "crop_y0_x0_size": [
+    0,
+    80,
+    480
+  ],
+  "grasp_result_repr": "[-0.05546836675114995, 0.09445644718502247, 0.427, 0.46368006, 56.29069, 537.9999876022339]"
+}
