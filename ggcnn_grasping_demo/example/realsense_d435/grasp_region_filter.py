@@ -38,16 +38,17 @@ import numpy as np
 # ---- measured object: iphone_box (mm) ----
 BOX_LENGTH_MM = 161.0   # long side
 BOX_WIDTH_MM = 29.0     # side the jaws close across
-BOX_HEIGHT_MM = 8.8
+BOX_HEIGHT_MM = 88
 
 # ---- grasp region ----
 END_MARGIN_MM = 40.0    # excluded at EACH end of the box -> central 81 mm allowed
 ACROSS_TOL_MM = 6.0     # max offset of the grasp centre from the box centreline
+CANDIDATE_SCORE_FRACTION = 0.9   # candidates = in-region pixels scoring >= 90% of the best in-region score
 
 # ---- opening ----
 CLEARANCE_PER_SIDE_MM = 5.0
 REQUIRED_OPENING_MM = BOX_WIDTH_MM + 2.0 * CLEARANCE_PER_SIDE_MM   # 39 mm
-GRIPPER_MAX_OPENING_MM = None   # set from the gripper spec; None = not checked
+GRIPPER_MAX_OPENING_MM = 84   # set from the gripper spec; None = not checked
 
 # ---- jaw angle ----
 ANGLE_TOL_DEG = 15.0    # max deviation of the jaw axis from perpendicular to the box
@@ -70,6 +71,7 @@ def settings_dict():
         'box_height_mm': BOX_HEIGHT_MM,
         'end_margin_mm': END_MARGIN_MM,
         'across_tol_mm': ACROSS_TOL_MM,
+        'candidate_score_fraction': CANDIDATE_SCORE_FRACTION,
         'clearance_per_side_mm': CLEARANCE_PER_SIDE_MM,
         'required_opening_mm': REQUIRED_OPENING_MM,
         'gripper_max_opening_mm': GRIPPER_MAX_OPENING_MM,
@@ -80,7 +82,7 @@ def settings_dict():
         'max_pos_spread_mm': MAX_POS_SPREAD_MM,
         'max_angle_spread_deg': MAX_ANGLE_SPREAD_DEG,
         'accepted_candidate': 'most recent frame of the stable window, as predicted (no averaging)',
-        'opening_source': 'model width map value at the region candidate, used as-is (no rescaling)',
+        'opening_source': 'commanded opening = box width + 2 x clearance; model width logged only, not checked',
     }
 
 
@@ -206,7 +208,15 @@ def evaluate_frame(region, quality, angle_map, width_map, crop_origin, crop_scal
         c['frame_reason'] = 'no_quality_in_region'
         return c
 
-    r, col = np.unravel_index(np.argmax(masked), masked.shape)
+    # Candidates: in-region pixels scoring at least CANDIDATE_SCORE_FRACTION of
+    # the best in-region score. Of those, take the one closest to the box centre.
+    best = float(masked.max())
+    rows, cols = np.nonzero(masked >= CANDIDATE_SCORE_FRACTION * best)
+    us = cols * crop_scale + crop_origin[1]
+    vs = rows * crop_scale + crop_origin[0]
+    along_c, across_c = region.local(us, vs)
+    i = int(np.argmin(np.hypot(along_c, across_c)))
+    r, col = rows[i], cols[i]
     u = col * crop_scale + crop_origin[1]
     v = r * crop_scale + crop_origin[0]
     ui, vi = int(round(u)), int(round(v))
@@ -230,23 +240,21 @@ def evaluate_frame(region, quality, angle_map, width_map, crop_origin, crop_scal
     c['depth_valid_fraction'] = frac
     c['pass_depth'] = bool(math.isfinite(z) and z > 0 and frac >= MIN_VALID_DEPTH_FRACTION)
 
-    ok_min = ok_max = False
+        # Opening: commanded from the measured box width + clearance, NOT from the
+    # model's width. The model's width is still computed and logged, but not checked.
+    ok_max = REQUIRED_OPENING_MM <= GRIPPER_MAX_OPENING_MM
     if c['pass_depth']:
         fx, fy = float(cam_k[0][0]), float(cam_k[1][1])
         cx, cy = float(cam_k[0][2]), float(cam_k[1][2])
         c['x_cam_m'] = (ui - cx) / fx * z
         c['y_cam_m'] = (vi - cy) / fy * z
         c['z_cam_m'] = z
-        c['width_mm'] = w_px * z / fx * 1000.0
-        ok_min = c['width_mm'] >= REQUIRED_OPENING_MM
-        ok_max = GRIPPER_MAX_OPENING_MM is None or c['width_mm'] <= GRIPPER_MAX_OPENING_MM
-        c['pass_opening'] = bool(ok_min and ok_max)
+        c['width_mm'] = w_px * z / fx * 1000.0   # model width, logged only
+    c['pass_opening'] = bool(ok_max)
     c['pass_angle'] = bool(c['angle_from_perpendicular_deg'] <= ANGLE_TOL_DEG)
 
     if not c['pass_depth']:
         c['frame_reason'] = 'insufficient_valid_depth'
-    elif not ok_min:
-        c['frame_reason'] = 'opening_too_small'
     elif not ok_max:
         c['frame_reason'] = 'opening_exceeds_gripper'
     elif not c['pass_angle']:
