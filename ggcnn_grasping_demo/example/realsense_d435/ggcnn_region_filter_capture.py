@@ -793,11 +793,10 @@ def main():
         SELECTION_MODE = (f'local-peak tracking with smoothing inside the model '
                           f'(assumed z {ASSUMED_ROBOT_Z_M} <= open_loop_height {olh!r})')
         print("  Model mode: LOCAL-PEAK TRACKING with smoothing.")
-    print(f"Filter: required opening {grf.REQUIRED_OPENING_MM:.0f} mm "
-          f"(box {grf.BOX_WIDTH_MM:.0f} + 2 x {grf.CLEARANCE_PER_SIDE_MM:.0f} mm clearance), "
+    print(f"Filter: commanded opening {grf.REQUIRED_OPENING_MM:.0f} mm "
+          f"(box {grf.BOX_WIDTH_MM:.0f} + 2 x {grf.CLEARANCE_PER_SIDE_MM:.0f} mm clearance, "
+          f"gripper max {grf.GRIPPER_MAX_OPENING_MM} mm); model width is logged only. "
           f"{grf.STABLE_FRAMES} consistent frames needed.")
-    if grf.GRIPPER_MAX_OPENING_MM is None:
-        print("  NOTE: GRIPPER_MAX_OPENING_MM is not set, so the upper opening limit is not checked.")
     print(f"Keys: 'r' grasp region, 'n' labels, 's' save, 'b' {BURST_FRAMES}-frame sequence, 'q'/ESC quit.")
     set_labels()
 
